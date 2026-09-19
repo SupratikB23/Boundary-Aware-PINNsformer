@@ -1,0 +1,12 @@
+# E2 real Delhi-NCR recovery (PRD §6 E2). Fit interior, validate perimeter ring.
+experiment: e2_real
+seed: 0
+results_subdir: e2_real
+seasons: [postmonsoon, winter]
+pollutants: [PM2.5, PM10, PM1]
+city: delhi_ncr
+protocol: interior_fit__perimeter_holdout
+secondary_protocol: leave_one_interior_out
+stratify_by_entropy: true
+base_overrides:
+  pseudoseq_variant: advection_backward

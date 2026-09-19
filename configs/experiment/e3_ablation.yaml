@@ -1,0 +1,10 @@
+# E3 architecture ablations (PRD §6 E3). Matched parameter counts.
+experiment: e3_ablation
+seed: 0
+results_subdir: e3_ablation
+variants: [uniform_forward, uniform_backward, advection_backward, advection_jitter]
+sequence_lengths: [3, 5, 9, 13]
+activations: [wavelet, tanh, gelu]
+physics_terms: [full, no_physics]   # no_physics isolates the data-only control
+matched_params: true
+profile: [wall_s, peak_mb, n_params]

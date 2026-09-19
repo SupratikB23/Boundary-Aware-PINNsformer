@@ -1,0 +1,11 @@
+# C_net PINNsformer hyperparameters (PRD §4.2 model/pinnsformer.yaml).
+# Target: < 0.5 M parameters; peak memory < 3 GB at L = 5.
+d_model: 64
+n_encoder_layers: 2
+n_decoder_layers: 2
+n_heads: 4
+d_ff: 128
+activation: wavelet       # wavelet | tanh | gelu | siren (utils/registry.py ACTIVATION)
+dropout: 0.05
+encoder_free: false       # literature argues the encoder is redundant; keep as flag
+param_target: 500000

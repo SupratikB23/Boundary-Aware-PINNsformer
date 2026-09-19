@@ -1,0 +1,20 @@
+# CPCB data selection + QC rules (PRD §4.2 data/cpcb.yaml).
+pollutants: [PM2.5, PM10, PM1, NO2, O3]
+met_vars: [wind_speed, wind_dir, temp, rh]
+study_start: "2019-10-01"
+study_end: "2024-02-29"
+focus_windows:
+  - postmonsoon   # Oct–Nov
+  - winter        # Dec–Feb
+station_whitelist: []     # empty => all known Delhi-NCR CAAQMS
+station_blacklist: []
+missingness_threshold: 0.40   # drop stations missing more than this fraction
+unit_conversions:
+  PM2.5: ug_m3
+  PM10: ug_m3
+qc:
+  flatline_hours: 6
+  spike_zscore: 6.0
+  allow_negative: false
+  deduplicate: true
+  timezone: Asia/Kolkata

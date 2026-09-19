@@ -1,0 +1,10 @@
+# E5 transfer to second airshed (PRD §6 E5). Only the domain changes.
+experiment: e5_transfer
+seed: 0
+results_subdir: e5_transfer
+cities: [kolkata, chennai]
+domain_override_dir: configs/domain
+seasons: [postmonsoon, winter]
+pollutants: [PM2.5]
+base_overrides:
+  pseudoseq_variant: advection_backward

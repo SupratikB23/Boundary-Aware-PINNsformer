@@ -1,0 +1,11 @@
+# Kolkata transfer airshed (PRD §4.2, E5). Same schema as delhi_ncr.yaml.
+name: kolkata
+lat_min: 22.00
+lat_max: 23.20
+lon_min: 87.90
+lon_max: 88.90
+crs: EPSG:32645        # UTM 45N (metric, local to Kolkata lon ~88-89E)
+n_s: 128
+perimeter_buffer_km: 15.0
+interior_buffer_km: 0.0
+note: coastal/sea-breeze meteorology; sparser network expected

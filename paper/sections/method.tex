@@ -1,0 +1,10 @@
+\section{Method}
+% PRD §2: contracts — domain/arc-length s, nets (C, C_b, S, K, lam), 4 pseudo-sequence variants, wind-switched BCs, GradNorm-balanced objective, curriculum.
+\begin{itemize}
+  \item Governing equation $\partial C/\partial t + \nabla\cdot(\mathbf{u}C) = \nabla\cdot(K\nabla C) + S - \lambda C$; 2-D vertically integrated; metric CRS; normalizer owns scaling.
+  \item Networks: $C$ (PINNsformer over $L$ tokens), $C_b(s,t)$ (softplus, temporal smoothness), $S(x,y,t)$ (non-negative, L1/TV sparsity), $K$, $\lambda$ (log-params; PM1 $<$ PM2.5 $<$ PM10 ordering).
+  \item Pseudo-sequences: uniform\_forward / uniform\_backward / advection\_backward (ours) / advection\_jitter (ours); RK2/RK4 on interpolated ERA5 wind; boundary-hit flags.
+  \item Boundary switching: Dirichlet $C - C_b$ on inflow ($\mathbf{u}\cdot\hat{\mathbf{n}} < 0$), zero-gradient on outflow, hysteresis band.
+  \item Objective $L = w_{\mathrm{data}}L_{\mathrm{data}} + w_{\mathrm{pde}}L_{\mathrm{pde}} + w_{\mathrm{bc}}L_{\mathrm{bc}} + w_{\mathrm{reg}}L_{\mathrm{reg}}$; masked data loss, gradient-norm balancing, Adam $\to$ L-BFGS, temporal curriculum.
+  \item Identifiability argument: wind directional entropy as tomographic angular diversity.
+\end{itemize}

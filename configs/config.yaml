@@ -1,0 +1,28 @@
+# Root composition (PRD §4.2). Plain YAML — no hydra dependency at runtime.
+# Scripts compose a run as: this file + the listed section files (later wins).
+# `make` entry points may also pass a single experiment file directly.
+defaults:
+  - domain/delhi_ncr.yaml
+  - data/cpcb.yaml
+  - data/era5.yaml
+  - model/pinnsformer.yaml
+  - model/cb_net.yaml
+  - model/s_net.yaml
+  - pseudoseq/advection_backward.yaml
+  - train/default.yaml
+
+seed: 0
+device: auto            # auto | cpu | cuda
+results_root: results
+log_level: INFO
+
+city: delhi_ncr
+season: postmonsoon     # postmonsoon | winter
+pollutant: PM2.5        # PM1 | PM2.5 | PM10
+
+baselines:              # PRD §7.1; must all resolve in utils/registry.py BASELINE
+  - zero_inflow
+  - climatological_inflow
+  - mlp_pinn
+  - uniform_psf
+  - trajectory

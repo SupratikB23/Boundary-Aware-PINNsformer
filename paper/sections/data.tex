@@ -1,0 +1,9 @@
+\section{Data}
+% PRD E0: CPCB CCR + OpenCity, ERA5, withheld FIRMS; QC/mask (never impute); domain + interior/perimeter split; Oct 2019–Feb 2024.
+\begin{itemize}
+  \item CPCB CCR + OpenCity mirror: pollutants, met; harmonization; station inclusion threshold.
+  \item ERA5 (CDS): u10/v10, BLH, T, RH; caching; station-vs-ERA5 wind agreement.
+  \item QC: range, flatline, spike, duplicates, IST, units; validity masks; missingness characterization.
+  \item Domain: Delhi-NCR box, metric CRS, arc-length $s$, interior vs NCR perimeter ring; split hashes.
+  \item FIRMS VIIRS/MODIS fire + FRP: held out entirely (leakage guard); E4 use only.
+\end{itemize}

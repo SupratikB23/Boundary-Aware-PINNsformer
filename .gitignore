@@ -1,0 +1,115 @@
+# Secrets and local env
+.env
+!.env.example
+
+# Raw + held-out inputs (immutable, checksummed, re-fetchable; see data/README.md)
+data/raw/
+data/heldout/
+# Generated data stages (regenerable via scripts/03_build_dataset.py; see data/README.md)
+data/interim/*
+data/processed/*
+data/synthetic/*
+# Re-allow directory placeholders + docs so the tree scaffolding survives git
+!data/raw/cpcb/.gitkeep
+!data/raw/opencity/.gitkeep
+!data/raw/era5/.gitkeep
+!data/heldout/firms/.gitkeep
+!data/interim/.gitkeep
+!data/processed/.gitkeep
+!data/synthetic/.gitkeep
+!data/README.md
+
+# Run outputs (provenance-tracked, regenerable; see results/README.md)
+results/runs/
+results/e0_data_quality/*
+results/e1_identifiability/*
+results/e2_real/*
+results/e3_ablation/*
+results/e4_validation/*
+results/e5_transfer/*
+!results/e0_data_quality/.gitkeep
+!results/e1_identifiability/.gitkeep
+!results/e2_real/.gitkeep
+!results/e3_ablation/.gitkeep
+!results/e4_validation/.gitkeep
+!results/e5_transfer/.gitkeep
+!results/runs/.gitkeep
+!results/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+ENV/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+
+# Notebooks
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# Checkpoints / weights (regenerable; large binaries never commit)
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Tabular / gridded artifacts (live under data/ or results/, never commit)
+*.parquet
+*.nc
+*.netcdf
+*.h5
+*.hdf5
+*.npz
+
+# Literature PDFs + proposal binaries (large, pre-existing, never commit)
+# Canonical literature lives on disk in Reference Papers/ but stays out of git.
+Reference Papers/
+Papers/
+*.pdf
+!paper/refs.bib
+*.docx
+*.doc
+*.pptx
+
+# Kaggle / extra credentials (never commit)
+kaggle.json
+.kaggle/
+*.env
+!.env.example
+
+# LaTeX build outputs
+paper/*.pdf
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+# Generated paper artifacts (rebuilt by scripts/90_make_figures.py + 91_make_tables.py)
+paper/figures/*
+paper/tables/*
+!paper/figures/.gitkeep
+!paper/tables/.gitkeep
+!paper/main.tex
+!paper/refs.bib
+!paper/sections/
+!paper/notes/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

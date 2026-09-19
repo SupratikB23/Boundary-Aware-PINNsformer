@@ -1,0 +1,8 @@
+# S_net: (x, y, t) -> non-negative interior source S (PRD §2.2).
+depth: 3
+width: 32
+activation: tanh
+output_transform: softplus
+fourier_features: 8
+l1_weight: 1.0e-4        # spatial sparsity prior scale
+tv_weight: 1.0e-5

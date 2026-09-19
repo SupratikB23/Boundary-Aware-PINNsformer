@@ -1,0 +1,11 @@
+\section{Experiments}
+% PRD §6: E0–E5 with acceptance criteria; §7 baselines + metrics.
+\begin{itemize}
+  \item E0 data pipeline + characterization (one-command rebuild; wind agreement; entropy per window).
+  \item E1 synthetic identifiability: FD ground truth; sweep stations $\{7,15,25,40\}$ $\times$ config $\times$ entropy $\times$ noise; RQ2.
+  \item E2 real recovery: interior fit, withheld perimeter validation; per-season/pollutant; RQ1.
+  \item E3 ablations: 4 pseudo-sequence variants at matched params; $L$ sweep; Wavelet; physics term; RQ3.
+  \item E4 fire validation: NW-sector inflow vs withheld FRP (Spearman + lags); DSS/WRF-Chem comparison; RQ4.
+  \item E5 transfer: Kolkata/Chennai domain override.
+  \item Baselines: zero/climatological inflow, MLP-PINN, uniform-PSF PINNsformer, back-trajectory regression, published inventory shares (external).
+\end{itemize}

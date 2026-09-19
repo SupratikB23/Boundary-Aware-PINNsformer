@@ -1,0 +1,11 @@
+# Chennai transfer airshed (PRD §4.2, E5). Same schema as delhi_ncr.yaml.
+name: chennai
+lat_min: 12.60
+lat_max: 13.60
+lon_min: 79.90
+lon_max: 80.60
+crs: EPSG:32644        # UTM 44N (metric, local to Chennai lon ~80E)
+n_s: 128
+perimeter_buffer_km: 15.0
+interior_buffer_km: 0.0
+note: coastal/sea-breeze meteorology; sparser network expected

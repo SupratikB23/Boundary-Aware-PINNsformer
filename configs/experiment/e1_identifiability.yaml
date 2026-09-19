@@ -1,0 +1,15 @@
+# E1 synthetic identifiability sweep (PRD §6 E1). Runs on CPU/small GPU.
+experiment: e1_identifiability
+seed: 0
+results_subdir: e1_identifiability
+station_counts: [7, 15, 25, 40]
+config_archetypes: [clustered, uniform, perimeter_biased]
+wind_entropy_bins: [low, mid, high]
+noise_levels: [0.0, 0.05, 0.10, 0.20]
+replicates: 3
+threshold: 0.25            # identifiability margin tolerance
+base_overrides:
+  city: delhi_ncr
+  season: postmonsoon
+  pollutant: PM2.5
+  pseudoseq_variant: advection_backward

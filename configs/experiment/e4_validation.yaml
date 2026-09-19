@@ -1,0 +1,11 @@
+# E4 independent validation (PRD §6 E4). Fire data NEVER enters training.
+experiment: e4_validation
+seed: 0
+results_subdir: e4_validation
+sector: NW
+aggregation: daily
+resample: D
+lags_days: [0, 1, 2, 3]
+correlation: spearman
+heldout_dir: data/heldout/firms
+external_sources: [DSS, WRF-Chem]   # literature tables supplied via eval/compare_external

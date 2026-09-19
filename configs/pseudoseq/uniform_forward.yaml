@@ -1,0 +1,7 @@
+# Pseudo-sequence: PINNsformer original, uniform forward offsets (PRD §2.3).
+variant: uniform_forward   # must resolve in utils/registry.py PSEUDOSEQ
+L: 5
+dt_hours: 1.0
+integrator: null
+substeps: 1
+out_of_domain: clamp

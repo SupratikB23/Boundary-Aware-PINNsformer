@@ -1,0 +1,17 @@
+# Training hyperparameters (PRD §4.2 train/default.yaml, §2.5).
+optimizer: adam
+lr: 1.0e-3
+adam_steps: 5000
+lbfgs_steps: 200
+scheduler: cosine
+balancing: gradnorm        # gradient-norm loss balancing (learning-rate-annealing style)
+balancing_period: 100
+curriculum:               # temporal curriculum: expanding time window
+  enabled: true           # NOTE: t0/t1 bounds come from E0 data at fit time;
+  stages: 4               # until then fits run without curriculum (see
+                          # utils/config.build_trainer_config -> curriculum_request)
+n_collocation_interior: 4096
+n_collocation_boundary: 512
+resampling: residual      # residual | uniform
+early_stop_patience: 500
+seed: 0

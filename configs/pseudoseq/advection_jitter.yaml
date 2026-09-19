@@ -1,0 +1,8 @@
+# Pseudo-sequence: advection backward + diffusive jitter (ours, PRD §2.3).
+variant: advection_jitter
+L: 5
+dt_hours: 1.0
+integrator: rk2
+substeps: 2
+jitter: sqrt_2Kdt        # isotropic Gaussian scale rule √(2KΔt)
+out_of_domain: clamp

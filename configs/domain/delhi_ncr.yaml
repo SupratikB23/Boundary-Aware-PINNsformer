@@ -1,0 +1,12 @@
+# Delhi-NCR airshed domain (PRD §4.2 domain/delhi_ncr.yaml, §2.1).
+# Rectangular lat/lon box enclosing Delhi + NCR ring, projected to a
+# local metric CRS (metres) downstream. Boundary traversed CCW from SW.
+name: delhi_ncr
+lat_min: 27.80
+lat_max: 29.20
+lon_min: 76.40
+lon_max: 77.90
+crs: EPSG:24378        # Kalianpur 1975 / India zone IIb (metric); reproject if needed
+n_s: 128              # boundary arc-length discretization points
+perimeter_buffer_km: 15.0   # stations within this of any edge => perimeter (withheld)
+interior_buffer_km: 0.0

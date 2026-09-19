@@ -1,0 +1,7 @@
+# Pseudo-sequence: advection-aligned backward characteristics (ours, PRD §2.3).
+variant: advection_backward
+L: 5
+dt_hours: 1.0
+integrator: rk2             # rk2 | rk4
+substeps: 2
+out_of_domain: clamp       # clamp + boundary-hit flag

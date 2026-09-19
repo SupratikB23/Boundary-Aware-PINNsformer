@@ -1,0 +1,33 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+
+\title{Boundary-Aware PINNsformer: Observation-Driven Recovery of Transboundary Pollutant Inflow using Advection-Aligned Pseudo-Sequences}
+\author{BBM Research}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+City-scale air quality models must specify what enters the domain across lateral boundaries.
+We invert the problem: given sparse interior CPCB station observations and a known ERA5 wind field over the Delhi-NCR airshed, we jointly recover the interior concentration field, the time-varying direction-resolved boundary inflow, and the interior source field subject to the advection--diffusion--deposition PDE as a soft constraint, using a PINNsformer whose pseudo-sequences are sampled along backward wind characteristics.
+\end{abstract}
+
+\input{sections/intro}
+\input{sections/related}
+\input{sections/method}
+\input{sections/data}
+\input{sections/experiments}
+\input{sections/results}
+\input{sections/discussion}
+\input{sections/limitations}
+\input{sections/conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

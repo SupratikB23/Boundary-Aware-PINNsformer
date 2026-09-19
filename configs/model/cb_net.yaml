@@ -1,0 +1,7 @@
+# Cb_net: (arc-length s, time t) -> non-negative inflow C_b (PRD §2.2).
+depth: 3
+width: 32
+activation: tanh
+output_transform: softplus
+fourier_features: 8
+temporal_smoothness: 1.0e-3   # first-difference penalty weight scale

@@ -1,0 +1,9 @@
+# ERA5 retrieval (PRD §4.2 data/era5.yaml). Cached by (box, variable, month).
+variables: [u10, v10, blh, t2m, d2m]
+pressure_levels: []       # single-level fields only
+grid_resolution_deg: 0.25
+time_range:
+  start: "2019-10-01"
+  end: "2024-02-29"
+cache_dir: data/raw/era5
+product: reanalysis-era5-single-levels
