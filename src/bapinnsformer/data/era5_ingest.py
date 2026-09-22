@@ -65,14 +65,15 @@ def build_cds_request(
     times = time or [f"{h:02d}:00" for h in range(24)]
     # CDS area convention: [North, West, South, East]
     request = {
-        "product_type": "reanalysis",
+        "product_type": ["reanalysis"],
         "variable": list(variables),
-        "year": f"{year:04d}",
-        "month": f"{month:02d}",
+        "year": [f"{year:04d}"],
+        "month": [f"{month:02d}"],
         "day": days,
         "time": times,
         "area": [lat_max, lon_min, lat_min, lon_max],
-        "format": "netcdf",
+        "data_format": "netcdf",
+        "download_format": "unarchived",
     }
     return {"dataset": product, "request": request}
 

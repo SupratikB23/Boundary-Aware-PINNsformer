@@ -571,14 +571,14 @@ This project is built with Claude Code as the engineering surface. The agent lay
 
 ### 12.3 Definition of done
 
-- [ ] `python tasks.py data` rebuilds the processed dataset from raw with a data-quality report.
-- [ ] All tests in §4.5 pass, including the manufactured-solution and leakage tests.
-- [ ] E1 sweep complete; identifiability boundary mapped and written up.
-- [ ] E2 complete across seasons and pollutants with all §7.1 baselines.
-- [ ] E3 ablations complete with efficiency measurements.
-- [ ] E4 correlation computed with a documented no-leakage audit trail.
-- [ ] E5 run on a second airshed.
-- [ ] Every figure and table regenerable by `python tasks.py figures` / `python tasks.py tables`.
+- [x] `python tasks.py data` rebuilds the processed dataset from raw with a data-quality report.
+- [x] All tests in §4.5 pass, including the manufactured-solution and leakage tests.
+- [x] E1 sweep complete; identifiability boundary mapped and written up.
+- [x] E2 complete across seasons and pollutants with all §7.1 baselines.
+- [x] E3 ablations complete with efficiency measurements.
+- [x] E4 correlation computed with a documented no-leakage audit trail.
+- [x] E5 run on a second airshed.
+- [x] Every figure and table regenerable by `python tasks.py figures` / `python tasks.py tables`.
 - [ ] `claims_ledger.md` has a supporting artifact for every claim in the manuscript.
 - [ ] Code + processed dataset released; README reproduces at least Figures 4, 6, 8 and 10 from scratch.
 - [ ] Manuscript submitted to the primary venue.

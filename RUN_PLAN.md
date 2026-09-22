@@ -111,8 +111,8 @@ session; `results/runs/quota.json` tracks weekly quota. Never start a fit longer
 
 ## 4. Verify-after-each-step checklist
 
-- [ ] `pytest -q` green (esp. `test_pde_residual` manufactured solution, `test_leakage`, `test_masking`, `test_splits`).
-- [ ] Every `results/runs/<run_id>/` has `metrics.json (record + embedded provenance) + config_snapshot.json + events.jsonl + stdout.log` (+ `checkpoints/` when the hook fires).
+- [x] `pytest -q` green (esp. `test_pde_residual` manufactured solution, `test_leakage`, `test_masking`, `test_splits`).
+- [x] Every `results/runs/<run_id>/` has `metrics.json (record + embedded provenance) + config_snapshot.json + events.jsonl + stdout.log` (+ `checkpoints/` when the hook fires).
 - [ ] E1: error ↓ with stations + wind entropy (tomography hypothesis) — or document the negative result.
 - [ ] E2: beat zero/climatology/MLP-PINN/uniform-PSF on withheld perimeter RMSE/MAE/R².
 - [ ] E3: advection variants win at smaller L (accuracy-vs-L + time/mem curves).

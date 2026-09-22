@@ -25,12 +25,27 @@ def main(argv=None) -> int:
     cfg, run_id, rundir, log = init_run(args)
     seasons = list(cfg.get("seasons", ["postmonsoon", "winter"]))
     pollutants = list(cfg.get("pollutants", ["PM2.5"]))
+    import subprocess
     instances = [(s, p) for s in seasons for p in pollutants]
     if args.max_fits is not None:
         instances = instances[: max(0, args.max_fits)]
-    log.info("fan-out: %d instances (session-cap guard: sequential, one session each)", len(instances))
-    metrics = {"instances": [{"season": s, "pollutant": p} for s, p in instances],
-               "status": "fanout-stub"}
+    log.info("fan-out: %d instances", len(instances))
+    
+    results = []
+    for s, p in instances:
+        log.info("launching fit for %s / %s", s, p)
+        cmd = [sys.executable, "scripts/20_fit_real.py", 
+               "--config", args.config,
+               "--season", s,
+               "--pollutant", p]
+        try:
+            subprocess.run(cmd, check=True)
+            results.append({"season": s, "pollutant": p, "status": "success"})
+        except subprocess.CalledProcessError:
+            log.error("fit failed for %s / %s", s, p)
+            results.append({"season": s, "pollutant": p, "status": "failed"})
+
+    metrics = {"instances": results, "status": "fanout-complete"}
     from scripts._common import save_results
 
     save_results(rundir, run_id, cfg, metrics, log=log)

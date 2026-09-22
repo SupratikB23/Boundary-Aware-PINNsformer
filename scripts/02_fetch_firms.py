@@ -27,14 +27,45 @@ def main(argv=None) -> int:
     cfg, run_id, rundir, log = init_run(args)
     os.makedirs(HELDOUT_DIR, exist_ok=True)
     metrics = {"heldout_dir": HELDOUT_DIR, "offline": bool(args.offline)}
+    
+    from scripts._common import save_results
+    import urllib.request
+    from urllib.error import HTTPError
+    from bapinnsformer.data.firms_ingest import fetch_firms_archive
+    
     if args.offline:
         import glob
-
         metrics["heldout_files"] = sorted(glob.glob(os.path.join(HELDOUT_DIR, "*")))
     else:
-        log.info("fetch stub: wire FIRMS API here; outputs stay under data/heldout/firms/")
-        metrics["note"] = "set FIRMS_API_KEY in .env"
-    from scripts._common import save_results
+        # Get FIRMS API KEY
+        api_key = os.environ.get("FIRMS_API_KEY")
+        if not api_key and os.path.exists(".env"):
+            with open(".env") as f:
+                for line in f:
+                    if line.startswith("FIRMS_API_KEY="):
+                        api_key = line.split("=", 1)[1].strip()
+                        break
+                        
+        if not api_key:
+            log.error("FIRMS_API_KEY not found in .env")
+            metrics["error"] = "FIRMS_API_KEY not found"
+        else:
+            log.info("Fetching NASA FIRMS data...")
+            # Area coordinates: W,S,E,N - roughly Punjab and Haryana
+            box = "73,28,78,32" 
+            source = "VIIRS_SNPP_NRT"
+            days = "10" # maximum allowed by FIRMS
+            url = f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{api_key}/{source}/{box}/{days}"
+            
+            dest_file = os.path.join(HELDOUT_DIR, "firms_punjab_haryana.csv")
+            try:
+                out_path = fetch_firms_archive(url, dest_file)
+                log.info(f"FIRMS data saved to {out_path}")
+                metrics["success"] = True
+                metrics["outfile"] = str(out_path)
+            except Exception as e:
+                log.error(f"Failed to fetch FIRMS data: {e}")
+                metrics["error"] = str(e)
 
     save_results(rundir, run_id, cfg, metrics, log=log)
     return 0

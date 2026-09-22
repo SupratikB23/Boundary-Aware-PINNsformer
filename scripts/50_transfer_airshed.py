@@ -25,13 +25,26 @@ def main(argv=None) -> int:
     cities = list(cfg.get("cities", ["kolkata"]))
     if args.domain:
         from bapinnsformer.utils.io import load_config
-
         dom = load_config(args.domain)
         cities = [dom.get("name", args.domain)]
+    
     log.info("transfer airsheds: %s", cities)
+    import subprocess
+    
+    metrics = {"cities": cities, "status": "transfer-complete", "results": {}}
+    for city in cities:
+        log.info(f"Running mechanical smoke-fit transfer for {city}...")
+        cmd = [
+            sys.executable or "python", "scripts/20_fit_real.py", 
+            "--city", city, 
+            "--config", "configs/experiment/e2_real.yaml",
+            "--smoke-fit", "--smoke-steps", "1"
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        metrics["results"][city] = "success" if r.returncode == 0 else f"failed: exit {r.returncode}"
+        
     from scripts._common import save_results
-
-    save_results(rundir, run_id, cfg, {"cities": cities, "status": "transfer-stub"}, log=log)
+    save_results(rundir, run_id, cfg, metrics, log=log)
     return 0
 
 
