@@ -115,7 +115,8 @@ def train_kwargs(y: dict | None) -> dict:
         out["lbfgs_max_iter"] = int(y.get("lbfgs_max_iter", 50))
     balancing = str(y.get("balancing", "gradnorm")).lower()
     out["balance_every"] = int(y.get("balancing_period", 0)) if balancing == "gradnorm" else 0
-    for k in ("w_data", "w_pde", "w_bc", "w_reg", "weight_decay",
+    for k in ("w_data", "w_pde", "w_bc", "w_reg", "w_char", "char_n_mc",
+              "reg_source_l1", "reg_cb_smooth", "weight_decay",
               "grad_clip", "hysteresis", "checkpoint_every"):
         if k in y:
             out[k] = y[k]
@@ -139,6 +140,13 @@ def build_trainer_config(composed: dict) -> dict:
     # until then the fit runs without curriculum and the request is kept
     # visible (never silently dropped).
     curriculum_request = train_block.pop("curriculum_request", None)
+    # Regularizer weights live next to the nets they regularize in the YAMLs.
+    s_cfg = cfg.get("s_net") if isinstance(cfg.get("s_net"), dict) else {}
+    cb_cfg = cfg.get("cb_net") if isinstance(cfg.get("cb_net"), dict) else {}
+    if "l1_weight" in s_cfg and "reg_source_l1" not in train_block:
+        train_block["reg_source_l1"] = float(s_cfg["l1_weight"])
+    if "temporal_smoothness" in cb_cfg and "reg_cb_smooth" not in train_block:
+        train_block["reg_cb_smooth"] = float(cb_cfg["temporal_smoothness"])
     return {
         "city": cfg.get("city", "delhi_ncr"),
         "season": normalize_season(cfg.get("season", "postmonsoon")),
@@ -150,6 +158,8 @@ def build_trainer_config(composed: dict) -> dict:
         "s_net": s_kwargs(cfg.get("s_net") if isinstance(cfg.get("s_net"), dict) else {}),
         "phys": cfg.get("phys", {"K_init": 100.0, "lam_init": 1e-5}),
         "pseudoseq": pseudoseq_kwargs(cfg.get("pseudoseq") if isinstance(cfg.get("pseudoseq"), dict) else {}),
+        "physics": dict(cfg.get("physics") or {"form": "advective"}),
+        "scales": dict(cfg.get("scales") or {"mode": "auto"}),
         "train": train_block,
         "curriculum": None,
         "curriculum_request": curriculum_request,
