@@ -124,6 +124,20 @@ Weights `w_*` are set by **gradient-norm balancing** (learning-rate-annealing st
 
 ---
 
+## 2A. Mathematical novelty (added 2026-10-03; implemented and tested on `main`)
+
+> Data-source note: wherever this PRD says ERA5 read "wind interpolated from CPCB station WS/WD", and wherever it says FIRMS/VIIRS read "ICAR-IARI CREAMS daily burning bulletins" (RUN_PLAN.md §3). The in-body replacement is task G10.
+
+**C1 — Characteristic / Feynman–Kac residual.** Along the backward characteristic `X` ending at `(x,t)`, the advection–loss part of the PDE has the exact solution `C(x,t) = e^{−λτ} C(X(t−τ), t−τ) + ∫₀^τ e^{−λσ} S(X(t−σ), t−σ) dσ`. The pseudo-sequence tokens lie on `X`; the loss enforces this identity on them, and if `X` exits through an inflow edge the exit value is `C_b(s_exit, t_exit)` at the refined exit point, giving interior observations a direct gradient path to the boundary net. With jittered tokens it is a Monte-Carlo Feynman–Kac estimate of the backward SDE `dX = −u dt + √(2K) dW`. Code: `physics/characteristic.py`, `train/trainer.py` (`w_char`).
+
+**C2 — Computable identifiability.** For fixed wind, `K`, `λ` the PDE is linear, so station data obey `y = A_b c_b + A_s s + A_0 c_0` (Green's functions on a finite basis, `physics/greens.py`). With Gaussian priors and noise this gives a closed-form Bayesian oracle, and three a-priori diagnostics: principal angles between the whitened boundary and local ranges, the posterior confounding coefficient `ρ` between boundary and local receptor contributions, and boundary observability (variance reduction of inflow-active coefficients). E1 tests whether these predict when the decomposition is recoverable (RQ2). Code: `eval/identifiability.py`, `eval/e1_benchmark.py`.
+
+**C3 — Receptor share by exact superposition.** The transboundary share is `mean C_bnd / mean C` at Delhi receptor stations after spin-up, computed by running the linear model on the boundary-only, source-only, IC-only and full forcings (closure checked to 1e-10), with a Monte-Carlo posterior 90 % interval from the oracle. This is the quantity comparable to DSS's outside-NCR share (≈34.6 % post-monsoon, ≈26.5 % winter). The inflow mass-flux share is retained only as a budget diagnostic. Code: `eval/attribution.py::receptor_share_superposition`.
+
+**Evaluation rules that follow.** E1 truth is generated on a 2× finer grid with smooth forcings that the inversion basis cannot represent exactly (no inverse crime); null-boundary and null-source tests run in every sweep; priors are data-derived, never truth-derived; real-data fits are 96-h windows with 24-h spin-up; the linear Bayesian inversion is a baseline on real data. Gates: RUN_PLAN.md §7.
+
+---
+
 ## 3. System architecture
 
 Three planes. Each plane is independently runnable and independently testable.
