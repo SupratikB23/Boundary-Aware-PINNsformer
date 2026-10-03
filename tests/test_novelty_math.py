@@ -383,3 +383,50 @@ def test_char_loss_requires_advection_generator():
     with pytest.raises(ValueError):
         Trainer(config={"train": {"w_char": 1.0},
                         "pseudoseq": {"name": "uniform_forward", "seq_len": 3, "dt": 3600.0}})
+
+
+def test_checkpoint_roundtrip_weights_only(tmp_path):
+    """Checkpoints must load with torch.load(weights_only=True) (no pickle RCE)."""
+    from bapinnsformer.models.normalizer import Normalizer
+    from bapinnsformer.train.checkpoint import load_checkpoint, save_checkpoint
+    from bapinnsformer.train.trainer import Trainer
+
+    tr = Trainer()
+    p = save_checkpoint(tmp_path / "c.pt", tr.C_net, tr.Cb_net, tr.S_net, tr.phys,
+                        Normalizer((0, 1), (0, 1), (0, 1)), {"a": 1, "b": [1.0, 2]})
+    payload = load_checkpoint(p, tr.C_net, tr.Cb_net, tr.S_net, tr.phys)
+    assert payload["config"]["a"] == 1
+
+
+def test_e1_null_boundary_identifiable_with_perimeter_stations():
+    """E1 sanity: dense perimeter network + rotating wind recovers a zero boundary share."""
+    from bapinnsformer.eval.e1_benchmark import (
+        E1Settings, place_stations, regrid_uniform, run_cell, synthetic_wind_window,
+    )
+
+    st = E1Settings(n_coarse=9, n_hours=48, spinup_h=12)
+    rng = np.random.default_rng(0)
+    u, v = synthetic_wind_window(st.n_hours, "high", rng)
+    Uc, Vc = regrid_uniform(u, v, 9, 9, 0.2)
+    Uf, Vf = regrid_uniform(u, v, 17, 17, 0.2)
+    S = place_stations(40, "perimeter_biased", st.Lx, st.Ly, rng)
+    R = place_stations(5, "clustered", st.Lx, st.Ly, rng)
+    r = run_cell(st, Uc, Vc, Uf, Vf, S, R, 0.05, np.random.default_rng(1),
+                 kind="null_boundary", misspec=False)
+    assert r["share_true"] == 0.0
+    assert r["oracle_share_est"] < 0.10
+    assert r["oracle_prior_share"] > 0.5  # so passing is the data's doing, not the prior's
+
+
+def test_qc_keeps_multi_hour_episode_but_flags_isolated_glitch():
+    import pandas as pd
+
+    from bapinnsformer.data.qc import detect_spikes
+
+    base = 80 + 5 * np.sin(np.arange(72) / 3.0)
+    x = base.copy()
+    x[20] = 900.0                 # single-hour glitch
+    x[45:51] = [300, 420, 500, 480, 390, 310]  # 6-h smoke episode
+    sp = detect_spikes(pd.Series(x))
+    assert sp.iloc[20]
+    assert not sp.iloc[45:51].any()
