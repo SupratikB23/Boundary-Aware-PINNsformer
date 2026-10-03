@@ -147,33 +147,63 @@ def characteristic_residual(
     any_exit = f.any(dim=1)
     first = torch.where(any_exit, f.float().argmax(dim=1), torch.full_like(any_exit, L, dtype=torch.long))
 
-    ex_idx = first.clamp(max=L - 1)
     ar = torch.arange(N, device=tokens.device)
-    xe, ye, te = x[ar, ex_idx], y[ar, ex_idx], t[ar, ex_idx]
+    dtp, dev = tokens.dtype, tokens.device
+    x0b, x1b = float(x_bounds[0]), float(x_bounds[1])
+    y0b, y1b = float(y_bounds[0]), float(y_bounds[1])
+
+    # ---- exit point / time (straight-line refinement of the first exit) ----
+    # The generator clamps the first out-of-domain token onto the edge at
+    # the token time, which is first-order. We refine: from the last
+    # inside token p = first-1, move backward along -u (wind at p) until
+    # the first edge is reached; that gives the exit point and time.
+    p_idx = (first - 1).clamp(min=0, max=L - 1)
+    nxt = first.clamp(max=L - 1)
+    xp, yp, tp = x[ar, p_idx], y[ar, p_idx], t[ar, p_idx]
+    up, vp = wind_fn(xp, yp, tp)
+    up = torch.as_tensor(up, dtype=dtp, device=dev).reshape(-1)
+    vp = torch.as_tensor(vp, dtype=dtp, device=dev).reshape(-1)
+    inf = torch.full_like(xp, float("inf"))
+    eps = 1e-12
+    t_w = torch.where(up > eps, (xp - x0b) / up.clamp_min(eps), inf)
+    t_e = torch.where(up < -eps, (x1b - xp) / (-up).clamp_min(eps), inf)
+    t_s = torch.where(vp > eps, (yp - y0b) / vp.clamp_min(eps), inf)
+    t_n = torch.where(vp < -eps, (y1b - yp) / (-vp).clamp_min(eps), inf)
+    tau_e = torch.stack([t_w, t_e, t_s, t_n], dim=-1).min(dim=-1).values.clamp_min(0.0)
+    seg = (tp - t[ar, nxt]).abs()
+    refined = torch.isfinite(tau_e) & (tau_e <= seg * (1 + 1e-9))
+    tau_e = torch.where(refined, tau_e, seg)
+    xe = torch.where(refined, xp - up * tau_e, x[ar, nxt]).clamp(x0b, x1b)
+    ye = torch.where(refined, yp - vp * tau_e, y[ar, nxt]).clamp(y0b, y1b)
+    te = tp - tau_e
     se = xy_to_arclength(xe, ye, x_bounds, y_bounds)
     nxe, nye = outward_normal(xe, ye, x_bounds, y_bounds)
     ue, ve = wind_fn(xe, ye, te)
-    ue = torch.as_tensor(ue, dtype=tokens.dtype, device=tokens.device).reshape(-1)
-    ve = torch.as_tensor(ve, dtype=tokens.dtype, device=tokens.device).reshape(-1)
+    ue = torch.as_tensor(ue, dtype=dtp, device=dev).reshape(-1)
+    ve = torch.as_tensor(ve, dtype=dtp, device=dev).reshape(-1)
     inflow_exit = (ue * nxe + ve * nye) < 0.0
     Cb_e = Cb_fn(se, te).reshape(-1)
-    C_e = C_all[ar, ex_idx]
+    C_e = C_fn(xe, ye, te).reshape(-1)
     V_exit = torch.where(inflow_exit, Cb_e, C_e)
 
+    # ---- source integral: cumulative trapezoid along the path ----
     t0 = t[:, :1]
+    g = torch.exp(-lam_t * (t0 - t)) * S_all  # (N, L)
+    seg_int = 0.5 * (g[:, :-1] + g[:, 1:]) * (t[:, :-1] - t[:, 1:]).abs()  # (N, L-1)
+    cum = torch.cat([torch.zeros_like(seg_int[:, :1]), seg_int.cumsum(dim=1)], dim=1)  # (N, L)
+    S_e = S_fn(xe, ye, te).reshape(-1)
+    g_e = torch.exp(-lam_t * (t0[:, 0] - te)) * S_e
+    I_exit = cum[ar, p_idx] + 0.5 * (g[ar, p_idx] + g_e) * tau_e
+    tau_exit = (t0[:, 0] - te).clamp_min(1e-9)
+    target_exit = torch.exp(-lam_t * tau_exit) * V_exit + I_exit
+
     res, coup, taus = [], [], []
     for k in range(1, L):
         exited = first <= k
-        kk = torch.where(exited, first, torch.full_like(first, k))  # effective end token
-        tau = (t0[:, 0] - t[ar, kk]).clamp_min(1e-9)
-        V = torch.where(exited, V_exit, C_all[:, k])
-        # trapezoid of e^{-λ(t-r)} S over tokens 0..kk (masked beyond kk)
-        dec = torch.exp(-lam_t * (t0 - t[:, : k + 1]))  # (N, k+1)
-        g = dec * S_all[:, : k + 1]
-        dt_seg = (t[:, :k] - t[:, 1 : k + 1]).abs()  # (N, k)
-        seg_ok = (torch.arange(k, device=tokens.device)[None, :] < kk[:, None]).to(g.dtype)
-        integral = (0.5 * (g[:, :k] + g[:, 1 : k + 1]) * dt_seg * seg_ok).sum(dim=1)
-        target = torch.exp(-lam_t * tau) * V + integral
+        tau_k = (t0[:, 0] - t[:, k]).clamp_min(1e-9)
+        target_k = torch.exp(-lam_t * tau_k) * C_all[:, k] + cum[:, k]
+        target = torch.where(exited, target_exit, target_k)
+        tau = torch.where(exited, tau_exit, tau_k)
         res.append(C_all[:, 0] - target)  # numerator; divided by tau below
         coup.append(exited & inflow_exit)
         taus.append(tau)
