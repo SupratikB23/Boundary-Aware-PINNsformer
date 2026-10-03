@@ -49,6 +49,7 @@ class ZeroInflow(nn.Module):
     """Boundary assumption ``C_b(s, t) = 0`` everywhere."""
 
     name = "zero_inflow"
+    physical_output = True  # Trainer must not rescale by C_ref
 
     def forward(self, s_hat: torch.Tensor, t_hat: torch.Tensor) -> torch.Tensor:
         return torch.zeros_like(_col(s_hat))
@@ -84,6 +85,7 @@ class ClimatologicalInflow(nn.Module):
     """
 
     name = "climatological_inflow"
+    physical_output = True  # value is already in physical units
 
     def __init__(self, value: float = 50.0, learnable: bool = False,
                  c0: float | None = None) -> None:
