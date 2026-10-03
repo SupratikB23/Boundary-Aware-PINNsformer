@@ -127,23 +127,50 @@ def make_boundary_inflow(
     return Cb
 
 
-def _apply_boundary(C: np.ndarray, Cb_vec: np.ndarray) -> None:
-    """Dirichlet boundary from perimeter-ordered ``Cb_vec`` (in place).
-
-    ``Cb_vec`` holds [south(nx) | east(ny-2) | north(nx) | west(ny-2)];
-    if shorter, it is tiled; if longer, truncated.
-    """
-    ny, nx = C.shape
+def _perimeter_vector(v: np.ndarray, nx: int, ny: int) -> np.ndarray:
     need = 2 * nx + 2 * (ny - 2)
-    v = np.asarray(Cb_vec, dtype=float).ravel()
+    v = np.asarray(v, dtype=float).ravel()
     if v.size < need:
         v = np.tile(v, int(np.ceil(need / max(v.size, 1))))[:need]
-    else:
-        v = v[:need]
-    C[0, :] = v[:nx]
-    C[1:-1, -1] = v[nx : nx + ny - 2]
-    C[-1, :] = v[nx + ny - 2 : 2 * nx + ny - 2]
-    C[1:-1, 0] = v[2 * nx + ny - 2 :]
+    return v[:need]
+
+
+def _apply_boundary(C: np.ndarray, Cb_vec: np.ndarray, u: np.ndarray | None = None,
+                    v: np.ndarray | None = None) -> None:
+    """Wind-switched boundary condition from a perimeter vector (in place).
+
+    ``Cb_vec`` holds [south(nx, W→E) | east(ny-2, S→N) | north(nx, W→E) |
+    west(ny-2, S→N)] (tiled if shorter, truncated if longer).
+
+    * Inflow nodes (``u·n < 0``): Dirichlet ``C = C_b``.
+    * Outflow / tangent nodes: zero normal gradient (copy the inward
+      neighbour) — the same switch as the model (PRD §2.4) and as
+      ``physics/greens.py``. Before the 2026-10-03 fix, Dirichlet values
+      were imposed on *every* face, so E1 "truth" contained boundary data
+      on outflow faces that no inverse method can (or should) recover.
+
+    ``u``/``v`` ``None`` keeps the legacy all-Dirichlet behaviour (used
+    only for initial-condition stamping).
+    """
+    ny, nx = C.shape
+    b = _perimeter_vector(Cb_vec, nx, ny)
+    south, east = b[:nx], b[nx:nx + ny - 2]
+    north, west = b[nx + ny - 2:2 * nx + ny - 2], b[2 * nx + ny - 2:]
+    if u is None or v is None:
+        C[0, :] = south
+        C[1:-1, -1] = east
+        C[-1, :] = north
+        C[1:-1, 0] = west
+        return
+    # outward normals: south (0,-1), east (1,0), north (0,1), west (-1,0)
+    inn = v[0, :] > 0.0  # south inflow: wind blowing north into the domain
+    C[0, :] = np.where(inn, south, C[1, :])
+    inn = u[1:-1, -1] < 0.0
+    C[1:-1, -1] = np.where(inn, east, C[1:-1, -2])
+    inn = v[-1, :] < 0.0
+    C[-1, :] = np.where(inn, north, C[-2, :])
+    inn = u[1:-1, 0] > 0.0
+    C[1:-1, 0] = np.where(inn, west, C[1:-1, 1])
 
 
 def run_forward(
@@ -159,6 +186,7 @@ def run_forward(
     dt: float,
     n_steps: int,
     check_cfl_flag: bool = True,
+    clip_negative: bool = True,
 ) -> dict[str, np.ndarray]:
     """Integrate the FD forward model; return ground-truth dict.
 
@@ -171,6 +199,8 @@ def run_forward(
         dx, dy, dt: grid spacing (m) and timestep (s).
         n_steps: number of steps to integrate.
         check_cfl_flag: raise if ``dt`` violates the CFL limit.
+        clip_negative: clip C at 0 each step (set False to keep the solver
+            exactly linear, e.g. for superposition checks).
 
     Returns:
         ``{"C": (n_steps+1, Ny, Nx), "S": ..., "Cb": ..., "dt": ...}``.
@@ -200,7 +230,7 @@ def run_forward(
     for k in range(n_steps):
         kk = min(k, U.shape[0] - 1)
         uu, vv = U[kk], V[kk]
-        _apply_boundary(cur, Cb[min(k, Cb.shape[0] - 1)])
+        _apply_boundary(cur, Cb[min(k, Cb.shape[0] - 1)], uu, vv)
         # First-order upwind advection in advective form (same stencil as
         # SyntheticSolver.step): positive wind takes the backward
         # difference of C, negative wind the forward difference. (The old
@@ -228,8 +258,9 @@ def run_forward(
             + (cur[2:, 1:-1] - 2 * cur[1:-1, 1:-1] + cur[:-2, 1:-1]) / dy2
         )
         nxt = cur + dt * (-dudx - dvdy + K * lap + Sarr - lam * cur)
-        nxt = np.maximum(nxt, 0.0)
-        _apply_boundary(nxt, Cb[min(k + 1, Cb.shape[0] - 1)])
+        if clip_negative:
+            nxt = np.maximum(nxt, 0.0)
+        _apply_boundary(nxt, Cb[min(k + 1, Cb.shape[0] - 1)], uu, vv)
         traj[k + 1] = nxt
         cur = nxt
     return {"C": traj, "S": Sarr.copy(), "Cb": Cb.copy(), "dt": np.array(dt)}
