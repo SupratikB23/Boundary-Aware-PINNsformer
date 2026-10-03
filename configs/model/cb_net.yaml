@@ -4,4 +4,4 @@ width: 32
 activation: tanh
 output_transform: softplus
 fourier_features: 8
-temporal_smoothness: 1.0e-3   # first-difference penalty weight scale
+temporal_smoothness: 1.0    # relative weight of mean (dCb_hat/dt_hat)^2 inside L_reg

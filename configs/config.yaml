@@ -26,3 +26,9 @@ baselines:              # PRD §7.1; must all resolve in utils/registry.py BASEL
   - mlp_pinn
   - uniform_psf
   - trajectory
+physics:
+  form: advective         # advective (default; matches physics/greens.py) | conservative (ablation)
+scales:                   # dimensionless training (train/trainer.py "Scaling")
+  mode: auto              # auto: C_ref = median of the fit window's valid observations
+  T_ref: 3600.0           # s
+  L_ref: 10000.0          # m
