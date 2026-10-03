@@ -1,14 +1,28 @@
 # RUN_PLAN — Boundary-Aware PINNsformer
 
-What to run, in what order, with what data. Root-only file per request.
-PRD.md is authoritative; CLAUDE.md is the short summary. This file is the operator manual.
+The operator manual: what to download, what to fix, what to run, in what order, and how to tell whether a result is real.
+PRD.md is authoritative for architecture. **Where this file and PRD.md disagree about data sources, this file wins** (revised 2026-10-03: India-only government data).
 
-Status: full scaffold built, `pytest` 62/62 green on CPU (2026-09-12).
-No real data has been downloaded yet — everything below starts from zero data.
+Status (2026-10-03): scaffold complete, `pytest` green (79 on `hkv1`). Pipeline wiring exists on branch `hkv1`.
+**No real experiment has been run yet. There are no results.**
 
 ---
 
-## 0. Environment (do once)
+## 0. Brief
+
+**What we are doing.** We estimate how much of Delhi-NCR's particulate pollution enters the region from outside, using only government monitoring-station measurements and the laws of physics (advection–diffusion), with no emission inventory. A physics-informed transformer (PINNsformer) learns three things together: the pollution field, the local emission sources, and the unknown inflow along the domain boundary. The boundary inflow is the scientific output.
+
+**What changed in this revision.**
+1. **Every dataset is now an Indian government source.** No Kaggle datasets, no ERA5 (European), no NASA FIRMS (US), no OpenCity. Kaggle is still used for **GPU compute only**, never as a data source.
+2. **Wind field:** ERA5 is replaced by **hourly wind measured at the CPCB stations themselves**, interpolated to a grid (§2, D2).
+3. **Held-out fire validation:** NASA FIRMS is replaced by **ICAR-IARI CREAMS daily crop-residue-burning bulletins** (§2, D3).
+4. The `hkv1` review findings are now mandatory fixes (§3) that must land before any number is reported.
+
+**Rule zero.** Only numbers produced by a completed run on real CPCB data, with all of §5's checks passed, may go into a report, a slide, or the paper. A fallback, dummy, smoke or synthetic stand-in is never a result.
+
+---
+
+## 1. Environment (do once)
 
 ```powershell
 # Windows PowerShell, from repo root "BBM Research PAPER/"
@@ -16,110 +30,235 @@ py -3.12 -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 pip install -e .            # installs src/bapinnsformer
-copy .env.example .env      # then fill keys (never commit .env)
-pytest -q                   # expect: 62 passed
+copy .env.example .env      # no API keys are needed for the India-only data plan
+pytest -q                   # expect all green
 ```
 
-Notes:
-- `pyproject.toml` pins `torch==2.3.1` (+ CUDA build on workstation/Kaggle).
-  CPU-only dev machines can use whatever torch is installed — the suite passes on torch 2.7 CPU.
-- Pinned siblings (`numpy==1.26.4`, `pandas==2.2.2`, `polars`, `xarray`, `netCDF4`, `cdsapi`,
-  `geopandas`) may NOT match your dev env (suite is green on numpy 2.x / pandas 3.x too).
-  Do NOT `pip install -r requirements.txt` blindly over a working env: it will downgrade
-  torch/numpy/pandas. Before GPU runs, create a FRESH venv and install pinned versions there.
-- Heavy optionals (`cdsapi`, `xarray`, `netCDF4`, `geopandas`/`pyproj`, `psutil`) are lazily imported:
-  missing ones only break the fetch script that needs them (with a clear ImportError), never
-  `pytest` or training. `peak_memory_mb` falls back to tracemalloc on Windows without psutil.
-- GPU: RTX 3050 (dev) / Kaggle dual T4. Keep `<0.5M` params, `L=5` default → `<3GB`.
-  Run **two independent fits concurrently** on Kaggle, never data-parallel (PRD §9).
+- Add `pdfplumber` to `requirements.txt` (needed to parse the CREAMS bulletins, D3). `cdsapi` is no longer needed.
+- `pyproject.toml` pins `torch==2.3.1`. Do NOT `pip install -r requirements.txt` over a working environment, because it downgrades torch, numpy and pandas. Before GPU runs, create a FRESH venv.
+- GPU: RTX 3050 (dev) / Kaggle dual T4 (compute only). Keep the model under 0.5 M params with `L=5` (under 3 GB). On Kaggle, run two independent fits concurrently, never data-parallel (PRD §9).
+- Moving data to Kaggle: upload our own processed CPCB files as a **private** Kaggle dataset purely to mount them in the notebook. The data is still CPCB data. Cite CPCB, never Kaggle.
 
-## 1. Datasets required RIGHT NOW
+---
 
-| # | Dataset | Why / used in | Where it lands | How to get it (verified 2026-09-12) |
-|---|---------|---------------|----------------|--------------------------------------|
-| D1a | **CPCB CCR portal** hourly station data — the PRIMARY source | E0/E2 fit + validation. Hourly PM2.5, PM10 (PM1 where available) + station met (wind speed/dir, temp, RH for ERA5 cross-check), Delhi + NCR ring, Oct 2019–Feb 2024 | `data/raw/cpcb/` (immutable snapshots + manifest) | https://airquality.cpcb.gov.in/ccr/#/ → Historical Data → state/city/station, parameter, date range → download CSV per station, drop into `data/raw/cpcb/`; `scripts/00_fetch_cpcb.py --mirror ccr` normalizes. Manual per-station export (no bulk API); ~40 Delhi + ~15 NCR stations. Portal may need login → creds in `.env`. |
-| D1b | **Kaggle "Air Quality Data in India (2015–2020)"** (rohanrao) — station-wise HOURLY CPCB mirror | Fast-track D1 for Kaggle: attach as Kaggle input dataset, zero download. Same schema family as CCR (station, city, datetime, PM2.5/PM10/gases/met, AQI). Covers Oct 2019–Dec 2020 of our window | `data/raw/cpcb/` (or `/kaggle/input/...` on Kaggle, see notebook §2) | Kaggle → Add Input → search "Air Quality Data in India". LIMIT: ends 2020 — use for pipeline dev + pilot fits; backfill 2021–2024 from D1a. |
-| D1c | **GitHub cp099/India-Air-Quality-Dataset** — ⚠️ NOT usable for training | Daily city-level AQI with REVERSE-ENGINEERED (estimated, not measured) pollutant values; no stations, no hourly, no met. Verdict: EDA sanity-check only, never training/eval. | Nowhere in `data/` (keep out of the pipeline) | Skip unless you want a quick plotting toy. |
-| D2 | **OpenCity (data.opencity.in)** bulk mirror | Backfill/2nd source where available; `source` column keeps provenance. Bengaluru-leaning catalogue — Delhi coverage not guaranteed; treat as optional | `data/raw/opencity/` | Browse data.opencity.in → download city archive → `--mirror opencity`. No key. |
-| D3 | **ERA5** hourly `u10`/`v10`, BLH, 2m T, RH over Delhi-NCR box | Known wind `u=(u,v)` for PDE + characteristics; BLH for K | `data/raw/era5/*.nc` (cache key = box×var×month) | CDS API (cds.climate.copernicus.eu account): `CDS_API_KEY/CDS_API_URL` in `.env`, box in `configs/data/era5.yaml`, run `01_fetch_era5.py`. 0.25°, hourly. KAGGLE SHORTCUT: download once anywhere, upload as a private Kaggle dataset, mount it (notebook §3) — avoids flaky multi-GB fetches inside sessions. |
-| D4 | **NASA FIRMS VIIRS (+MODIS) fire + FRP**, Punjab/Haryana/adjacent, Oct–Nov seasons | **E4 ONLY, strictly held out.** Never enters training; `tests/test_leakage.py` enforces | `data/heldout/firms/` ONLY | FIRMS API (`FIRMS_API_KEY`, firms.modaps.eosdis.nasa.gov) area query → `scripts/02_fetch_firms.py`. Sole writer; training code cannot import it. Fetch early to exercise the guardrail; do not open before E4. |
-| D5 | **Published DSS / WRF-Chem seasonal shares** (numbers from bulletins/papers) | External comparison table only (not a baseline) | Entered manually in `configs/experiment/e4_validation.yaml` (`comparison_targets`) | Copy seasonal share numbers + citations into the config; `compare_external.py` builds the divergence table. No download. |
+## 2. Datasets — India, government, public
 
-Station list / domain box: `configs/domain/delhi_ncr.yaml` (E5: `kolkata.yaml`/`chennai.yaml`).
-QC rules + inclusion threshold: `configs/data/cpcb.yaml`. Nothing to download for these — curate them.
+All sources below were researched on 2026-10-03.
+- **Login:** CPCB, CREAMS, IMD and IITM need no account. IMDAA (D2b) is the only exception and is optional.
+- **Access caveat:** the CPCB CCR portal blocks automated access from outside India, so it could not be machine-checked from here. Its public, no-login status is established by its use as the stated open data source in recent peer-reviewed Delhi studies, e.g. Nandi et al., *npj Clean Air* 2026 (IIT Delhi), [doi:10.1038/s44407-026-00065-6](https://www.nature.com/articles/s44407-026-00065-6).
+- **First action:** open each link once in a browser from India and record in `data/README.md` what you saw: date, any login prompt, any captcha.
 
-Minimum to start E0: (D1a or D1b) + D3. D1c stays OUT of the pipeline. D4 can wait until E4 but fetching early proves the leakage guard.
+### 2.1 Required
 
-## 2. Run order (commands)
+| # | Dataset (owner) | Link | Login | What to take | Lands in | Used for |
+|---|---|---|---|---|---|---|
+| **D1** | **CPCB CCR — Continuous Ambient Air Quality Monitoring Stations (CAAQMS)**. Central Pollution Control Board, MoEFCC | Data repository: https://airquality.cpcb.gov.in/ccr/#/caaqm-dashboard-all/caaqm-landing/caaqm-data-repository  · Advanced search (per-station export): https://airquality.cpcb.gov.in/ccr/#/caaqm-dashboard-all/caaqm-landing/data  · Mirror host used in older papers: https://app.cpcbccr.com/ccr/#/caaqm-dashboard-all/caaqm-landing | None | **Hourly** averages, **Oct 2019 – Feb 2024**. Parameters: **PM2.5, PM10, PM1** (where installed), NO2, CO, SO2, O3, **WS, WD, AT, RH**. Stations: every Delhi CAAQMS (CPCB / DPCC / IMD / IITM-operated) **plus** the NCR ring: Gurugram, Faridabad, Sonipat, Panipat, Rohtak, Bahadurgarh, Jhajjar (HSPCB); Noida, Greater Noida, Ghaziabad, Meerut, Baghpat, Bulandshahr, Hapur (UPPCB); Bhiwadi, Alwar (RSPCB). Keep all that fall inside `configs/domain/delhi_ncr.yaml` plus a 50 km buffer. | `data/raw/cpcb/` (immutable, one file per station × year, plus `MANIFEST.csv` with filename, station, period, sha256, download date) | E0, E1 (real wind sequences), E2, E3, E5 |
+| **D1-meta** | **CPCB station metadata** (name, operator, lat/lon) | Station details on the CCR dashboard pages above | None | Name, ID, operating agency, latitude, longitude, commissioning date | `data/raw/cpcb/station_coords.json` (hand-built and checked; record the source of each coordinate) | Domain split, maps |
+| **D2** | **Wind field from CPCB station anemometers (WS/WD from D1)** | Same as D1 | None | No extra download: WS and WD come in the D1 exports | Built by the pipeline into `data/processed/wind_field.nc` | The known `u=(u,v)` in the PDE and in the backward characteristics |
+| **D3** | **ICAR-IARI CREAMS — daily paddy-residue burning bulletins.** Consortium for Research on Agroecosystem Monitoring and Modeling from Space, Indian Agricultural Research Institute (ICAR), New Delhi | Index: https://creams.iari.res.in/?page_id=1123  · Home: https://creams.iari.res.in/  · URL pattern, e.g. https://creams.iari.res.in/Creams_website_bulletin/Fire_bulletin_2020/30.RiceResidueFireBulletin_30Oct_2020_ICAR.pdf | None (direct PDF links) | One PDF per day, **Rice** (paddy) bulletins only, seasons **2019, 2020, 2021, 2022, 2023**. Each bulletin gives the satellite-detected burning-event count for the day **per state** (Punjab, Haryana, UP) and **per district**, plus cumulative totals. **Gap:** 2022 rice bulletins are not on the index page (2019: 58, 2020: 65, 2021: 79, 2023: 76 rice bulletins listed). Look under "List of All Bulletins" on the same page. If 2022 cannot be found, E4 runs on the 4 available seasons and the paper says so. | `data/heldout/creams/pdf/` (raw) → `data/heldout/creams/daily_counts.csv` (date, state, district, events) | **E4 only. Held out: never enters training.** |
+| **D4** | **IITM Pune Decision Support System (DSS v1.0)** — published Delhi source shares (MoES) | Paper: https://gmd.copernicus.org/articles/17/2617/2024/ (Govardhan et al., *GMD* 17, 2617–2640, 2024)  · Live system: https://ews.tropmet.res.in/dss/ | None | Seasonal shares: post-monsoon Delhi ≈34.4%, NCR ≈31%, stubble ≈7.3%, other ≈27.3%; winter 33.4 / 40.2 / 0.1 / 26.4%. Copy the numbers and citation exactly. | `configs/experiment/e4_validation.yaml` → `comparison_targets` | External comparison table only. Not a baseline, not a training signal |
+| **D5** | **CPCB CCR, second airshed** (E5) | Same portal as D1 | None | Same parameters and period for **Kolkata** (WBPCB stations) **or** **Chennai** (TNPCB stations) | `data/raw/cpcb_<city>/` | E5 |
 
-All scripts are `python scripts/<name>.py --config <yaml> [--quick]` and log run-ids to `results/runs/`.
-`python tasks.py <target>` wraps them (cross-platform; no `make` needed).
+### 2.2 Optional (only if needed and allowed)
+
+| # | Dataset | Link | Login | Why it is optional |
+|---|---|---|---|---|
+| D2b | **IMDAA regional reanalysis** (NCMRWF, MoES): 12 km, **hourly**, 10 m wind and boundary-layer height | https://rds.ncmrwf.gov.in/  · Datasets: https://rds.ncmrwf.gov.in/datasets | **Free account required** (https://rds.ncmrwf.gov.in/login) | Covers **only 1979–2020**, so just Oct 2019 – Dec 2020 of our window. It is the only Indian gridded wind + boundary-layer-height product. Use it only as an independent check on the D2 station-wind field over 2019–2020, never as the main wind source. Skip it if the project must stay strictly no-login. |
+| — | **IMD gridded daily rainfall** (0.25°) | https://www.imdpune.gov.in/cmpg/Griddata/Rainfall_25_NetCDF.html | None | Rain flag for wet-scavenging days (diagnostic for λ). Daily only, so not a model input. |
+
+### 2.3 Checked and NOT usable for modelling (record why, so nobody re-proposes them)
+
+| Source | Link | Why not |
+|---|---|---|
+| Open Government Data (OGD) — "Real time Air Quality Index from various locations" | https://www.data.gov.in/resource/real-time-air-quality-index-various-locations | **Current-hour snapshot only** (min/max/avg per pollutant per station), served through an API. There is **no history for 2019–2024**. Use it at most to cross-check station lat/lon. |
+| AIKosh (IndiaAI) — same real-time AQI feed + NAMP | https://aikosh.indiaai.gov.in/home/datasets/details/real_time_air_quality_index_from_various_locations.html | It re-hosts the same real-time snapshot. The NAMP datasets are **manual, twice-weekly, annual-summary** values (e.g. PM10 2009). There is no hourly history in our window. |
+| CPCB NAMP (manual network) | https://cpcb.nic.in/namp-data/ | Manual 24-h samples, about twice a week, so far too sparse for an hourly PDE inversion. Context only. |
+| NITI Aayog — India Climate & Energy Dashboard, air quality | https://iced.niti.gov.in/climate-and-environment/environment/air-quality | **District/state annual** concentrations sourced from CPCB. Useful for one sentence of context in the paper's introduction, nothing else. |
+| Kaggle CPCB mirrors, OpenCity, GitHub re-uploads | — | Not government-published. **Removed from the pipeline.** |
+| ERA5 (ECMWF), NASA FIRMS | — | Not Indian. **Removed.** Their code paths stay in the repo, disabled (§3). |
+
+**Leakage note for D2:** using the **wind** measured at perimeter stations is allowed, because wind is a known input. Using their **pollutant** values in training is forbidden: those are the E2 validation target. The split must hold out pollutant channels only, and §5 checks this.
+
+---
+
+## 3. Mandatory code changes before any real run
+
+Work on `hkv1` and merge `main` into it first, so this RUN_PLAN is present. Each item ends with a test or a check that proves it is done.
+
+### 3.1 Fixes from the `hkv1` review (blocking)
+
+| # | Change | Proof it is done |
+|---|---|---|
+| F1 | **Revert the false checkboxes.** `PRD.md` §12.3 and `RUN_PLAN.md` must not mark E0–E5 as complete; nothing has run. | `git diff main -- PRD.md` shows no ticked experiment boxes |
+| F2 | **Delete the E4 dummy-data fallback** in `scripts/40_validate_fires.py`. With no inputs it must exit non-zero with a clear message. A generated "inflow = 0.5 × fire" correlation is fabricated validation. | New test: running without inputs → exit code ≠ 0, and no CSV written |
+| F3 | **Zero-wind fallback → hard error** in `scripts/20_fit_real.py::_load_wind_field`. Missing or unreadable wind must stop the run. Zero wind silently turns the model into pure diffusion. | New test: missing `wind_field.nc` → exception |
+| F4 | **Median-distance perimeter fallback → hard error** in `scripts/03_build_dataset.py`. If no stations fall in the perimeter buffer, fix the buffer or domain in config. Never relabel half of Delhi as "perimeter". | New test: empty perimeter → exception |
+| F5 | **E5 must be a real transfer.** `50_transfer_airshed.py` must load `configs/domain/<city>.yaml` **and** `data/raw/cpcb_<city>/`, run the full fit (not `--smoke-steps 1`), and fail if the data it loaded is Delhi's. | Run log shows the city's domain bounds, station IDs and n_obs |
+| F6 | **Training settings come from config:** Adam steps, then L-BFGS, the curriculum and gradient balancing are all wired from `configs/train/default.yaml`. The current 50-step default is a smoke value only. | `config_snapshot.json` of a real run shows the full schedule |
+| F7 | **Sample data points stratified by station**, so dense Delhi clusters do not dominate the data loss. | Per-station contribution to the data loss is logged |
+| F8 | Call `xy_to_metric` once (it is currently called twice). | — |
+| F9 | Rewrite `hkv1.readme.md` so it describes what exists, not what was "confirmed complete". | — |
+
+### 3.2 Changes for the India-only data plan
+
+| # | Change | Proof it is done |
+|---|---|---|
+| G1 | **`cpcb_ingest.py`**: parse CCR exports (both the repository files and Advanced-search exports) including **WS, WD, AT, RH**. Normalize to IST and then to UTC, keep a `source="cpcb_ccr"` column, write `MANIFEST.csv` checksums. **Never impute.** | `tests/test_masking.py` still green; the row count of NaNs is identical before and after ingest |
+| G2 | **New `src/bapinnsformer/data/station_wind.py`** with these steps: (a) QC the winds: drop WS flatlines ≥ 6 h, WS > 25 m/s, WD outside 0–360, stations with > 50% calm hours; (b) convert WS/WD to u/v. Direction convention: WD is the direction the wind blows **from**, so u = −WS·sin(WD), v = −WS·cos(WD); (c) interpolate hourly to the model grid using inverse-distance or thin-plate RBF on **u and v separately**, then a mild spatial smoothing; (d) write `data/processed/wind_field.nc` with the **same variables and coordinates the existing `WindField` loader expects**, so the model code does not change. | New `tests/test_station_wind.py`: a known uniform wind at all stations → the same uniform field everywhere; a wind-direction sign test |
+| G3 | **New script `scripts/01_build_wind_field.py`** replaces `01_fetch_era5.py` in `tasks.py data`. The ERA5 code stays in the repo but is not called. | `python tasks.py data` never imports `era5_ingest` |
+| G4 | **New `src/bapinnsformer/data/creams_ingest.py` + `scripts/02_fetch_creams.py`** replace FIRMS. Download the Rice bulletins for 2019–2023 (Oct–Nov plus late Sep) into `data/heldout/creams/pdf/`, parse the state and district daily counts with `pdfplumber`, write `daily_counts.csv`. Spot-check: 30-Oct-2020 must give **Punjab 4266, Haryana 155, UP 51, total 4472** (read from that day's bulletin on 2026-10-03). | New `tests/test_creams_parse.py` asserts those four numbers |
+| G5 | **Extend the leakage guard:** `tests/test_leakage.py` must also forbid any import of `creams_ingest` or any read of `data/heldout/creams/` from `models/`, `physics/`, `train/`, `data/align.py`, `data/station_wind.py`. | Test green, and a deliberately planted bad import makes it fail (do this once, then remove it) |
+| G6 | **Split = pollutant channels only.** Perimeter stations' WS/WD may feed D2. Their PM values must never reach the fit set. | `tests/test_splits.py` gets a case for exactly this |
+| G7 | **E1 synthetic winds** are drawn from the D2 station-wind field (real Delhi wind sequences), not from ERA5. | E1 config points to `wind_field.nc` |
+| G8 | **No boundary-layer height** is available without IMDAA, so `K` is a learned scalar (`configs/model` and `params.py`). Write this up as a limitation. If D2b is used, BLH-modulated `K` becomes an ablation over 2019–2020 only. | Config shows `K: scalar` |
+| G9 | Remove the Kaggle/OpenCity ingestion branches from `03_build_dataset.py`. Remove `CDS_API_*` and `FIRMS_API_KEY` from `.env.example`. | `grep -ri "opencity\|kaggle\|firms_api" scripts src` is empty (except comments explaining removal) |
+| G10 | Update the data rows in `PRD.md` (§1.1, §2.3, §3 diagram, §4.3 `align/wind_field/stats/synthetic`, §6 E0/E1/E4, §12.2 wind risk) and the Data line in `CLAUDE.md` so they say *CPCB station wind* and *CREAMS*, not ERA5 and FIRMS. | `grep -n "ERA5\|FIRMS" PRD.md CLAUDE.md` only shows "replaced by" notes |
+
+---
+
+## 4. Run order
+
+All scripts take `--config <yaml>`, log a run-id to `results/runs/`, and are wrapped by `python tasks.py <target>`.
 
 ```
-# 0) sanity (no data needed, laptop CPU is fine)
-python tasks.py smoke                      # E1 --quick + E2 smoke-fit + checkpoint (~1 min)
-# or: pytest -q                            # 77 passed = green light
+# 0) Sanity, no data (laptop)
+pytest -q                                   # all green, incl. the new F2–F4, G2, G4–G6 tests
+python tasks.py smoke                       # plumbing only. NOT a result.
 
-# E0) data pipeline — needs D1+D3 on disk (laptop CPU is fine)
-python tasks.py data
-#  = 03_build_dataset.py → 04_characterize_data.py
-#  out: data/processed/ (aligned parquet, era5 nc, domain+split json) + results/e0_data_quality/
-#  gate: rebuilds end-to-end with one command; missingness table + ERA5-vs-station wind agreement reported
+# E0) Data (laptop CPU)
+#   manual: download D1 (+D1-meta) into data/raw/cpcb/   → fill MANIFEST.csv
+python tasks.py data                        # ingest → QC → station wind field → domain → split
+python scripts/04_characterize_data.py      # missingness, wind QC, entropy per window, domain map
+python scripts/02_fetch_creams.py           # D3 → data/heldout/creams/ ; do NOT open the CSV until E4
 
-# E1) synthetic identifiability — CPU/small GPU, no real data needed (can run BEFORE E0 finishes)
-python tasks.py e1                         # configs/experiment/e1_identifiability.yaml
-#  sweep: stations {7,15,25,40} × {clustered,uniform,perimeter-biased} × entropy bins × noise × replicates
-#  out: results/e1_identifiability/ (tidy rows) → identifiability surface (Fig 4/5)
-#  THIS IS THE PUBLISHABLE FALLBACK — finish it first. Runs on Kaggle CPU or laptop.
+# E1) Synthetic identifiability (CPU or small GPU). FINISH THIS FIRST: it is the publishable fallback.
+python tasks.py e1
 
-# E2) real Delhi-NCR recovery — needs E0 output, GPU (Kaggle)
-python tasks.py e2                         # 21_fit_all_real.py fans out per (season, pollutant)
-#  single debug fit: python scripts/20_fit_real.py --config configs/experiment/e2_real.yaml --city delhi_ncr
-#  protocol: fit interior Delhi stations only, withhold NCR perimeter ring; LOISO secondary
-#  out: results/e2_real/ + checkpoints in results/runs/<run_id>/checkpoints/
+# E2) Real Delhi-NCR recovery (Kaggle GPU), one (season, pollutant) per session
+python scripts/20_fit_real.py --config configs/experiment/e2_real.yaml --season postmonsoon --pollutant PM2.5   # pilot
+python tasks.py e2                          # full fan-out, after the pilot passes §5.3
 
-# E3) ablations — needs E0 (+E2 config), GPU (Kaggle)
-python tasks.py e3                         # 30_run_ablations.py, configs/experiment/e3_ablation.yaml
-#  4 pseudo-seq variants × L sweep at matched params + Wavelet on/off + physics-term off; profiles time/mem
+# E3) Ablations (Kaggle GPU)
+python tasks.py e3
 
-# E4) fire validation — needs E2 inflow + D4 (held out), CPU is fine
-python tasks.py e4                         # 40_validate_fires.py; Spearman NW-inflow vs FRP + lag; DSS comparison
-#  audit: pytest tests/test_leakage.py -q must pass; cite in paper
+# E4) Held-out fire validation (CPU)
+pytest tests/test_leakage.py -q             # must pass immediately before E4
+python tasks.py e4                          # recovered NW-sector inflow vs CREAMS daily counts
 
-# E5) transfer — needs D1–D3 equivalents for second airshed, GPU (Kaggle)
-python tasks.py e5                         # 50_transfer_airshed.py --config configs/experiment/e5_transfer.yaml
-#  only change: configs/domain/kolkata.yaml (or chennai.yaml)
+# E5) Transfer (Kaggle GPU)
+python tasks.py e5                          # needs D5 + configs/domain/kolkata.yaml (or chennai.yaml)
 
-# Figures / tables / paper (derived artifacts only — never hand-edit; laptop CPU fine)
-python tasks.py figures                    # 90_make_figures.py from results/ → paper/figures/
-python tasks.py tables                     # 91_make_tables.py → paper/tables/*.tex  (figures implies tables)
-python tasks.py paper                      # latexmk paper/main.tex (needs TeX install)
+# Paper artifacts (laptop)
+python tasks.py figures ; python tasks.py tables
 ```
 
-Per-fit session rule (PRD §9): one (city, season, pollutant) per run, must finish inside a 12h Kaggle
-session; `results/runs/quota.json` tracks weekly quota. Never start a fit longer than remaining session time.
+Session rule (PRD §9): one (city, season, pollutant) fit per run, which must finish inside a 12 h Kaggle session. Track usage in `results/runs/quota.json`.
 
-## 3. Config surface (what to edit vs never touch)
+---
 
-- Edit freely: `configs/pseudoseq/*.yaml` (variant, L, dt, rk2/rk4, jitter), `configs/model/*.yaml`
-  (widths/depths, wavelet/tanh/gelu), `configs/train/default.yaml` (Adam/L-BFGS steps, balancing period,
-  curriculum, collocation counts), `configs/experiment/*.yaml` (sweep grids, seasons, pollutants).
-- Registry names resolve via `utils/registry.py` — `test_config.py` fails fast on typos.
-- Never hand-edit: units/CRS/normalization (owned by `models/normalizer.py`), boundary direction
-  (CCW from SW corner, `data/domain.py`), split definitions (hash-pinned in `data/splits.py`),
-  anything under `results/` or `paper/figures|tables/` (regenerated by scripts 90/91).
+## 5. How to know a result is good
 
-## 4. Verify-after-each-step checklist
+Every gate below is pass/fail. A step is **done** only when all of its gates pass and its `results/<exp>/REPORT.md` exists. That report holds: the numbers, the run-ids, the git commit, the config hash, the split hash, which gates passed, and anything that failed or looked odd. If a gate fails, the step is not done. Report the failure; never tune until it passes silently.
 
-- [ ] `pytest -q` green (esp. `test_pde_residual` manufactured solution, `test_leakage`, `test_masking`, `test_splits`).
-- [ ] Every `results/runs/<run_id>/` has `metrics.json (record + embedded provenance) + config_snapshot.json + events.jsonl + stdout.log` (+ `checkpoints/` when the hook fires).
-- [ ] E1: error ↓ with stations + wind entropy (tomography hypothesis) — or document the negative result.
-- [ ] E2: beat zero/climatology/MLP-PINN/uniform-PSF on withheld perimeter RMSE/MAE/R².
-- [ ] E3: advection variants win at smaller L (accuracy-vs-L + time/mem curves).
-- [ ] E4: Spearman NW-inflow vs FRP significant; leakage test green.
-- [ ] `paper/notes/claims_ledger.md`: every manuscript claim → results file + figure.
+### 5.0 Red flags: stop and report immediately
 
-## 5. Review fixes applied (audit trail, updated 2026-09-12 — full recheck, 22 items)
+- Any log line containing `fallback`, `dummy`, `constant(0.0`, `smoke`, or `synthetic` inside an E2–E5 real run.
+- Perimeter R² > 0.95, or any metric that is suspiciously perfect. Suspect leakage first.
+- Recovered `C_b` constant in space and time, or `S` with all its mass in one or two grid cells.
+- NaN or Inf anywhere in the loss history, or a PDE-loss weight driven to ~0 by balancing (physics switched off).
+- Results that change materially when only the seed changes (see 5.3).
+- Any FIRMS, ERA5, Kaggle-dataset or OpenCity file under `data/` used by a run.
+
+### 5.1 E0 — data
+
+| Gate | Pass condition |
+|---|---|
+| Provenance | Every raw file is in `MANIFEST.csv` with a sha256. Rebuilding from raw reproduces `data/processed/` byte-identically (same split hash). |
+| No imputation | The count of missing hourly PM values per station is identical in raw and processed. |
+| Station inclusion | A station enters a (season, pollutant) fit only if it has ≥ 75% valid hours in that season. List included and excluded stations with their coverage. |
+| Enough stations | ≥ 15 interior stations pass inclusion for PM2.5 in each season. ≥ 6 perimeter stations pass, covering **at least 3 of the 4 sides**, and the **NW side must be covered**. Otherwise E2's primary validation is weak: say so, and lean on leave-one-interior-station-out (LOISO). |
+| Physical sanity | PM2.5 ≤ PM10 in ≥ 95% of co-located valid hours. Units are µg/m³ throughout. |
+| Wind quality | Leave-one-station-out check of the station-wind interpolation: direction MAE < 45° and speed RMSE < 1.5 m/s, per season. Report the % of calm hours. The dominant post-monsoon direction must come out **north-westerly**, matching the documented climatology; if it doesn't, a sign convention is wrong. |
+| Wind entropy | The directional-entropy distribution across fitting windows is reported (it drives RQ2). |
+| Map | `domain_map.png` shows the interior and perimeter stations at the right places; check visually against a real map of NCR. |
+
+### 5.2 E1 — synthetic identifiability (ground truth is known)
+
+| Gate | Pass condition |
+|---|---|
+| Solver correctness | `test_synthetic_solver.py` green: mass conserved with zero source and zero loss; the error shrinks under grid refinement. |
+| Replicates | ≥ 5 replicates per sweep cell. Report median and IQR, never a single run. |
+| Best-case recovery | At 40 stations, high wind entropy and the lowest noise: relative L2 error on `C_b` ≤ 0.25 and on `S` ≤ 0.35. If this fails, the inverse problem is not solved even in the easy case. Stop and report; E2 must not start. |
+| Monotone trends | Median `C_b` error falls as station count rises (7 → 15 → 25 → 40) and rises with noise. |
+| Tomography hypothesis (RQ2) | Spearman ρ between window wind entropy and `C_b` error is negative with p < 0.05. If not, write it up as a negative result; it is still reportable. |
+| **Null-boundary test** | Truth `C_b = 0` → recovered boundary-inflow share < 10%. This is the false-positive guard: the model must not invent transboundary pollution. |
+| **Null-source test** | Truth `S = 0` → recovered interior-source share < 10%. |
+| Wind-shuffle negative control | With the wind time order shuffled, recovery is clearly worse (> 1.5× error). If not, the model is not using the physics. |
+
+### 5.3 E2 — real Delhi-NCR
+
+| Gate | Pass condition |
+|---|---|
+| Real inputs only | `config_snapshot.json` + log show real `wind_field.nc`, the real split hash, the real n_obs and the list of fit stations, with no fallbacks. |
+| Convergence | Total and PDE loss plateau. The normalized PDE residual is ≤ 1e-2 at the end. The L-BFGS stage ran. |
+| Held-out skill | RMSE, MAE and R² against the **withheld perimeter stations** (hourly and daily-mean) are reported for our model **and every baseline on the same split**: zero-inflow, climatological inflow, MLP-PINN, uniform-pseudo-sequence PINNsformer, back-trajectory regression. |
+| Beat baselines | Day-block bootstrap (1000 resamples) of the RMSE difference against zero-inflow and against climatological inflow: the 95% CI lies entirely below 0. If we don't beat these two, the boundary recovery is not adding information; report it honestly. |
+| LOISO | Leave-one-interior-station-out error is reported, as the secondary check. |
+| Seeds | 3 seeds per (season, pollutant). The spread of the recovered transboundary share must be ≤ 5 percentage points; if larger, the decomposition isn't stable enough to quote. |
+| Physical plausibility | λ ordering PM1 < PM2.5 < PM10 holds when fitted jointly. `K` is positive and within the literature range for horizontal eddy diffusivity at these scales; record the reference used. Domain mass balance (inflow − outflow + source − deposition − storage change) closes within ±10%. |
+| Wind sensitivity | Rerun the pilot instance with the wind rotated ±15° and scaled ±20%. Report how much the transboundary share moves. The share is only quotable if it is not dominated by this sensitivity. |
+| Sanity vs published | Compare the season-mean "non-local" share with DSS (D4: roughly 58–66% non-Delhi). It does **not** have to match. Any divergence > 20 percentage points needs a written explanation in the REPORT before the number is shown to anyone. |
+
+### 5.4 E3 — ablations
+
+| Gate | Pass condition |
+|---|---|
+| Fair comparison | All pseudo-sequence variants have parameter counts within ±5% of each other, use the same split, same steps and 3 seeds each. |
+| A win means a win | "Advection-aligned is better" may be claimed only where the mean improvement exceeds 2× the seed standard deviation, at the same L. The "needs a shorter L" claim must come from the accuracy-vs-L curve, with time and peak-memory curves next to it. |
+| Physics-off ablation | Removing the PDE term must change the recovered `C_b` materially. If it doesn't, the physics isn't doing anything; report that. |
+
+### 5.5 E4 — held-out fire validation (CREAMS)
+
+| Gate | Pass condition |
+|---|---|
+| Leakage | `pytest tests/test_leakage.py -q` passes immediately before the run, and the output is pasted into the REPORT. |
+| Parse correctness | `test_creams_parse.py` green (the 30-Oct-2020 numbers). Day count per season is reported. |
+| Primary test | Spearman ρ between the daily recovered **NW-sector** boundary inflow and the daily **Punjab + Haryana** CREAMS event count, Oct–Nov, at lags 0–3 days: report ρ, p and n per lag, with no cherry-picking: pre-register lag 1 as primary in `e4_validation.yaml` **before** opening the CREAMS CSV. |
+| Placebo | The same correlation with the **SE-sector** inflow should be clearly weaker. If it is just as strong, the signal is seasonal co-variation, not transport. |
+| Meteorology control | Repeat the primary test on days with NW wind only. This is the physically meaningful subset. |
+
+### 5.6 E5 — transfer
+
+| Gate | Pass condition |
+|---|---|
+| Really another city | The log shows the second city's domain bounds, its station IDs and its data files. |
+| Same gates | §5.1 and §5.3 gates are re-applied and the results reported, even if weaker. |
+
+---
+
+## 6. Config surface (what to edit vs never touch)
+
+- **Edit freely:** `configs/pseudoseq/*.yaml`, `configs/model/*.yaml`, `configs/train/default.yaml`, `configs/experiment/*.yaml`, and the new `configs/data/station_wind.yaml` (QC thresholds, interpolation method, grid).
+- **Never hand-edit:** units, CRS and normalization (`models/normalizer.py`); boundary direction (CCW from the SW corner, `data/domain.py`); split definitions (hash-pinned, `data/splits.py`); anything under `results/` or `paper/figures|tables/` (regenerated by scripts 90/91).
+- **Registry:** names resolve via `utils/registry.py`, and `test_config.py` fails fast on typos.
+
+---
+
+## 7. Deliverables per step
+
+| Step | Must exist before the step counts as done |
+|---|---|
+| E0 | `data/README.md` (what was downloaded, from where, when, any login/captcha seen) · `MANIFEST.csv` · `results/e0_data_quality/REPORT.md` with the §5.1 table filled |
+| E1 | `results/e1_identifiability/` tidy table · identifiability surface figure · `REPORT.md` with the §5.2 gates |
+| E2 | Per (season, pollutant): metrics + baselines + seeds + sensitivity · `REPORT.md` with the §5.3 gates |
+| E3 | Accuracy / time / memory vs L per variant · `REPORT.md` |
+| E4 | Pre-registered lag, then ρ/p/n table, placebo, NW-only · `REPORT.md` with the pasted leakage-test output |
+| E5 | Same as E0 + E2 for the second city |
+| Always | `paper/notes/claims_ledger.md`: every claim → results file → figure/table |
+
+---
+
+## 8. Review fixes applied (audit trail, as of 2026-09-12 — before the India-only data revision)
 
 First pass: `models/pseudoseq.py::_finalize_np` dead code removed; `baselines.py`
 docstring decontaminated for the leakage audit; smoke artifacts cleaned. `pytest` 62/62.
@@ -176,10 +315,14 @@ Second pass (independent review, 22 findings → all fixed, `pytest` 77/77):
 - Pinned by `tests/test_review_fixes.py` (15 tests: aliases, composition, upwind probe,
   seed stability, bc semantics, clamps, climatology consistency, buffer exclusion).
 
-## 6. Known limitations / next actions for the operator
+`hkv1` review (2026-10-03): ingestion, E0 build, characterization and real-data `20_fit_real` wiring are sound. Blocking issues are listed as F1–F9 in §3.1.
 
-- No data yet: D1–D4 downloads are the critical path (start CDS + CPCB requests now; they are slow).
-- `pyproject.toml` pins `torch==2.3.1`; dev CPU with torch 2.7 works but reinstall pinned versions before GPU runs.
-- `02_fetch_firms.py` + ERA5 fetch need real API keys (`.env`).
-- `paper/` is a skeleton (sections carry PRD-tied bullets, `refs.bib` entries marked verify-before-submission).
-- `notebooks/01_eda.ipynb` is a stub for exploration only — never part of the pipeline.
+---
+
+## 9. Known limitations (state these in the paper)
+
+- **Wind from station anemometers**, not a reanalysis. Urban siting and calm periods add error. Mitigated by the wind QC, the leave-one-station-out check (§5.1) and the wind-sensitivity runs (§5.3). Coverage outside the station footprint relies on interpolation.
+- **No boundary-layer height**, so `K` is a scalar. Winter inversions are where the 2-D vertically-integrated assumption is weakest. Report inversion-period performance separately.
+- **CREAMS gives event counts, not fire radiative power**, so E4 correlates against counts. The proposal's FRP metric is replaced by counts; say so.
+- **2022 rice-season bulletins** may be missing (§2, D3).
+- **The CPCB network is uneven**: dense in Delhi, sparse in the outer NCR. E1 tells us what accuracy to expect at that density.
