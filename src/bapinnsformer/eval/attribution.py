@@ -243,7 +243,125 @@ def mass_closure(
     }
 
 
+def receptor_share_superposition(
+    model,
+    wind_u,
+    wind_v,
+    Cb_hourly,
+    S_hourly,
+    C0,
+    receptor_xy,
+    n_hours: int,
+    spinup_h: int = 0,
+    sector_of_node=None,
+) -> dict:
+    """**Headline attribution** (revised 2026-10-03): receptor-oriented share.
+
+    The PDE is linear in ``(C_b, S, C0)`` for fixed wind/K/λ, so the field
+    splits *exactly* into ``C = C^{bnd} + C^{src} + C^{ic}`` (superposition).
+    The transboundary share at receptors (e.g. the Delhi CAAQMS stations)
+    over a window is
+
+        share = mean_{t ≥ spinup, receptors} C^{bnd} / mean C .
+
+    This answers the policy question ("what fraction of the PM2.5 measured
+    in Delhi entered across the airshed boundary?") and is the quantity
+    that can be compared with DSS's "outside-NCR" categories. The older
+    :func:`transboundary_share` (inflow *mass flux* through the box) also
+    counts air that crosses the box without reaching Delhi, so it is kept
+    as a secondary budget diagnostic only.
+
+    Parameters
+    ----------
+    model:
+        :class:`bapinnsformer.physics.greens.GridTransport` with the
+        recovered ``K, λ``.
+    wind_u, wind_v:
+        ``(n_hours+1, ny, nx)`` hourly wind on the model grid.
+    Cb_hourly:
+        ``(n_hours+1, nb)`` recovered ``C_b`` at the model's boundary nodes
+        (order = ``model.b_s``), linear in time between hours.
+    S_hourly:
+        ``(n_hours+1, ny, nx)`` recovered ``S`` (µg m⁻³ s⁻¹).
+    C0:
+        ``(ny, nx)`` initial field (e.g. the recovered ``C`` at window start).
+    receptor_xy:
+        ``(n_rec, 2)`` receptor coordinates (metres, SW-corner origin).
+    sector_of_node:
+        Optional ``(nb,)`` array of sector labels (e.g. from
+        :func:`sector_of_segment`) to split ``C^{bnd}`` by entry sector.
+
+    Returns ``{share, C_bnd, C_src, C_ic, C_total, closure_rel, sectors}``;
+    ``closure_rel`` = |full run − sum of parts| / full run (must be ~1e-12:
+    a larger value means the solver is not linear and the split is invalid).
+    """
+    import numpy as np
+
+    from ..physics.greens import bilinear_weights
+
+    Cbh = np.asarray(Cb_hourly, dtype=float)
+    Sh = np.asarray(S_hourly, dtype=float)
+    if Cbh.shape != (n_hours + 1, model.nb):
+        raise ValueError(f"Cb_hourly must be (n_hours+1, nb={model.nb}), got {Cbh.shape}")
+    if Sh.shape != (n_hours + 1, model.ny, model.nx):
+        raise ValueError(f"S_hourly must be (n_hours+1, ny, nx), got {Sh.shape}")
+
+    labels = None
+    if sector_of_node is not None:
+        labels = np.asarray(sector_of_node)
+        sectors = [s for s in SECTORS if (labels == s).any()]
+    else:
+        sectors = []
+    # members: 0 bnd, 1 src, 2 ic, 3 full, 4.. per-sector boundary
+    m = 4 + len(sectors)
+    masks = np.zeros((m, model.nb))
+    masks[0] = 1.0
+    masks[3] = 1.0
+    for k, sec in enumerate(sectors):
+        masks[4 + k] = (labels == sec).astype(float)
+    s_on = np.zeros(m)
+    s_on[[1, 3]] = 1.0
+    c0 = np.zeros((m, model.ny, model.nx))
+    c0[2] = C0
+    c0[3] = C0
+
+    def interp(arr, t):
+        h = min(int(t // 3600.0), n_hours - 1)
+        a = (t - h * 3600.0) / 3600.0
+        return (1 - a) * arr[h] + a * arr[h + 1]
+
+    def Cb_fn(t):
+        return masks * interp(Cbh, t)[None, :]
+
+    def S_fn(t):
+        return s_on[:, None, None] * interp(Sh, t)[None]
+
+    idx, w, _ = bilinear_weights(receptor_xy[:, 0], receptor_xy[:, 1],
+                                 model.nx, model.ny, model.dx, model.dy)
+    res = model.run(wind_u, wind_v, c0, Cb_fn, S_fn, n_hours, obs_idx=idx, obs_w=w)
+    obs = res["obs"][spinup_h:]  # (H, m, n_rec)
+    means = obs.mean(axis=(0, 2))
+    parts = means[0] + means[1] + means[2]
+    full = means[3]
+    out = {
+        "C_bnd": float(means[0]),
+        "C_src": float(means[1]),
+        "C_ic": float(means[2]),
+        "C_total": float(full),
+        "share": float(means[0] / full) if full > 0 else float("nan"),
+        "share_src": float(means[1] / full) if full > 0 else float("nan"),
+        "share_ic": float(means[2] / full) if full > 0 else float("nan"),
+        "closure_rel": float(abs(full - parts) / max(abs(full), 1e-300)),
+        "spinup_h": int(spinup_h),
+        "rule": "share = mean C_bnd / mean C at receptors (exact superposition, advective PDE)",
+        "sectors": {sec: float(means[4 + k] / full) if full > 0 else float("nan")
+                    for k, sec in enumerate(sectors)},
+    }
+    return out
+
+
 __all__ = [
+    "receptor_share_superposition",
     "SECTORS",
     "bearing_deg",
     "sector_of_bearing",
