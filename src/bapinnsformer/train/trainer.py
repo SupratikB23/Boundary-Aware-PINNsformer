@@ -220,8 +220,10 @@ class Trainer:
 
         self.balancer: GradNormBalancer | None = None
         if self.balance_every > 0:
+            # Regularizers are priors, not competing objectives: their
+            # weight stays fixed (balancing them would erase the prior).
             self.balancer = GradNormBalancer(
-                term_names=list(self.weights),
+                term_names=[k for k in self.weights if k != "reg"],
                 update_every=self.balance_every,
                 init_weights=dict(self.weights),
             )
@@ -525,7 +527,8 @@ class Trainer:
                     norms[k] = tot ** 0.5
                 except RuntimeError:
                     norms[k] = 0.0
-            self.weights = self.balancer.update(norms, step=self._step)
+            self.weights.update(self.balancer.update(
+                {k: v for k, v in norms.items() if k != "reg"}, step=self._step))
 
         total = sum(self.weights[k] * losses[k] for k in losses)
         self.optimizer.zero_grad()
