@@ -73,7 +73,8 @@ def detect_flatline(series: pd.Series, window: int = DEFAULT_FLATLINE_WINDOW, to
     return flagged.fillna(False).astype(bool)
 
 
-def detect_spikes(series: pd.Series, z_thresh: float = DEFAULT_SPIKE_Z, window: int = DEFAULT_SPIKE_WINDOW) -> pd.Series:
+def detect_spikes(series: pd.Series, z_thresh: float = DEFAULT_SPIKE_Z, window: int = DEFAULT_SPIKE_WINDOW,
+                  isolated_only: bool = True) -> pd.Series:
     """Flag isolated spikes via centered rolling z-score.
 
     ``|x − rolling_median| / (1.4826·MAD)`` ≥ ``z_thresh`` → spike.
@@ -86,7 +87,16 @@ def detect_spikes(series: pd.Series, z_thresh: float = DEFAULT_SPIKE_Z, window: 
     std = s.rolling(window, center=True, min_periods=max(3, window // 3)).std()
     scale = scale.where(scale > 1e-9, std)
     z = (s - med).abs() / scale.replace(0.0, np.nan)
-    return (z >= z_thresh).fillna(False).astype(bool)
+    hit = (z >= z_thresh).fillna(False)
+    if not isolated_only:
+        return hit.astype(bool)
+    # Isolation (revised 2026-10-03): a genuine pollution episode (Diwali,
+    # stubble-smoke pulse) raises several consecutive hours and must NOT be
+    # masked — it is the signal RQ4 looks for. Flag a point only if neither
+    # neighbour is itself above half the threshold (single-hour glitch).
+    half = (z >= 0.5 * z_thresh).fillna(False)
+    nb = half.shift(1, fill_value=False) | half.shift(-1, fill_value=False)
+    return (hit & ~nb).astype(bool)
 
 
 def apply_qc(
