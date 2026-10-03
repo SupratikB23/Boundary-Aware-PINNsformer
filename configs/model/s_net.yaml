@@ -4,5 +4,5 @@ width: 32
 activation: tanh
 output_transform: softplus
 fourier_features: 8
-l1_weight: 1.0e-4        # spatial sparsity prior scale
-tv_weight: 1.0e-5
+l1_weight: 1.0              # relative weight of mean|S_hat| inside L_reg (dimensionless)
+tv_weight: 0.0              # reserved (TV not used by the trainer)

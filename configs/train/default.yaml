@@ -1,15 +1,22 @@
-# Training hyperparameters (PRD §4.2 train/default.yaml, §2.5).
 optimizer: adam
 lr: 1.0e-3
 adam_steps: 5000
 lbfgs_steps: 200
 scheduler: cosine
-balancing: gradnorm        # gradient-norm loss balancing (learning-rate-annealing style)
+balancing: gradnorm        # gradient-norm balancing of data/pde/bc/char (reg weight stays fixed)
 balancing_period: 100
+# Loss weights act on DIMENSIONLESS terms (train/trainer.py "Scaling").
+w_data: 1.0
+w_pde: 1.0
+w_bc: 1.0
+w_reg: 1.0e-2              # prior strength; calibrate in E1 (RUN_PLAN §6.2), then freeze for E2
+w_char: 1.0                # characteristic / Feynman-Kac loss (contribution C1); 0 disables (ablation)
+char_n_mc: 4               # SDE replicas per query when pseudoseq = advection_jitter
+hysteresis: 0.1            # m/s band around u.n = 0 excluded from both BC types
+grad_clip: 1.0
 curriculum:               # temporal curriculum: expanding time window
-  enabled: true           # NOTE: t0/t1 bounds come from E0 data at fit time;
-  stages: 4               # until then fits run without curriculum (see
-                          # utils/config.build_trainer_config -> curriculum_request)
+  enabled: true           # NOTE: t0/t1 bounds come from the fit window at run time
+  stages: 4
 n_collocation_interior: 4096
 n_collocation_boundary: 512
 resampling: residual      # residual | uniform
