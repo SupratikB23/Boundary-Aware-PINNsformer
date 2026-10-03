@@ -67,7 +67,7 @@ def save_checkpoint(
         "config_hash": config_hash(config),
         "git_commit": get_git_commit(),
         "split_hash": split_hash,
-        "torch_version": torch.__version__,
+        "torch_version": str(torch.__version__),
         "timestamp": time.time(),
         "extra": extra or {},
     }
@@ -84,14 +84,28 @@ def load_checkpoint(
     S_net: torch.nn.Module | None = None,
     phys_params: torch.nn.Module | None = None,
     map_location: str | torch.device = "cpu",
+    trusted: bool = False,
 ) -> dict[str, Any]:
     """Load a checkpoint, restoring any nets passed in.
+
+    Loads with ``weights_only=True`` (no arbitrary pickle code execution).
+    Only if that fails *and* ``trusted=True`` (a file you wrote yourself)
+    does it fall back to a full unpickle. Never pass ``trusted=True`` for a
+    checkpoint downloaded from elsewhere.
 
     Returns the full payload dict (normalizer dict under
     ``payload["normalizer"]`` — rebuild with ``Normalizer.from_dict``).
     ``map_location="cpu"`` default keeps loads CPU-safe.
     """
-    payload = torch.load(Path(path), map_location=map_location, weights_only=False)
+    try:
+        payload = torch.load(Path(path), map_location=map_location, weights_only=True)
+    except Exception as exc:  # pickle.UnpicklingError or torch-specific error
+        if not trusted:
+            raise RuntimeError(
+                f"{path}: checkpoint is not loadable with weights_only=True; "
+                "re-save it, or pass trusted=True only for a file you created"
+            ) from exc
+        payload = torch.load(Path(path), map_location=map_location, weights_only=False)
     for net, key in (
         (C_net, "C_net"),
         (Cb_net, "Cb_net"),
