@@ -8,7 +8,7 @@ focus_windows:
   - winter        # Dec–Feb
 station_whitelist: []     # empty => all known Delhi-NCR CAAQMS
 station_blacklist: []
-missingness_threshold: 0.40   # drop stations missing more than this fraction
+missingness_threshold: 0.25   # exclude stations missing more than this fraction of the window (revised 2026-10-03; was 0.40)
 unit_conversions:
   PM2.5: ug_m3
   PM10: ug_m3

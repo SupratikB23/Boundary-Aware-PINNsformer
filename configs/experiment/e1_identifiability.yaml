@@ -1,15 +1,30 @@
-# E1 synthetic identifiability sweep (PRD §6 E1). Runs on CPU/small GPU.
+# E1 synthetic identifiability sweep (PRD §6 E1; RUN_PLAN §5). CPU is enough.
+# Every number below is a design choice, not a tuned value; change them only
+# with a note in results/AUDIT.md.
 experiment: e1_identifiability
 seed: 0
 results_subdir: e1_identifiability
 station_counts: [7, 15, 25, 40]
 config_archetypes: [clustered, uniform, perimeter_biased]
 wind_entropy_bins: [low, mid, high]
-noise_levels: [0.0, 0.05, 0.10, 0.20]
+windows_per_bin: 2
+noise_levels: [0.0, 0.05, 0.10, 0.20]   # fraction of mean concentration
 replicates: 3
-threshold: 0.25            # identifiability margin tolerance
-base_overrides:
-  city: delhi_ncr
-  season: postmonsoon
-  pollutant: PM2.5
-  pseudoseq_variant: advection_backward
+null_tests: [null_boundary, null_source]
+null_tol: 0.10            # |share_est - target| allowed in a null test
+n_receptors: 8            # Delhi-like core receptors where the share is measured
+wind_shear: 0.2           # synthetic wind only
+misspec: true             # also invert with K x2, lambda x0.5
+settings:                 # E1Settings (src/bapinnsformer/eval/e1_benchmark.py)
+  Lx: 150000.0
+  Ly: 155000.0
+  n_coarse: 17
+  fine_factor: 2
+  K: 100.0
+  lam: 1.0e-5
+  n_hours: 96
+  spinup_h: 24
+  n_bseg: 12
+  bwin_h: 6
+  swin_h: 24
+  missing_frac: 0.2
